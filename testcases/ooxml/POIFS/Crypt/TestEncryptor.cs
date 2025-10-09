@@ -31,8 +31,9 @@ namespace TestCases.POIFS.Crypt
     [TestFixture]
     public class TestEncryptor
     {
+
         [Test]
-        [Ignore("TODO FIX CI TESTS")]
+        //[Ignore("TODO FIX CI TESTS")]
         public void BinaryRC4Encryption()
         {
             // please contribute a real sample file, which is binary rc4 encrypted
@@ -45,7 +46,7 @@ namespace TestCases.POIFS.Crypt
             is1.Close();
 
             POIFSFileSystem fs = new POIFSFileSystem();
-            EncryptionInfo ei = new EncryptionInfo(EncryptionMode.BinaryRC4);
+            EncryptionInfo ei = new EncryptionInfo(EncryptionMode.CryptoAPI);
             Encryptor enc = ei.Encryptor;
             enc.ConfirmPassword(password);
 

@@ -17,20 +17,21 @@
 
 namespace NPOI.POIFS.Crypt.CryptoAPI
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Diagnostics;
-    using System.IO;
     using NPOI.HPSF;
-
     using NPOI.POIFS.Crypt;
     using NPOI.POIFS.Crypt.Standard;
     using NPOI.POIFS.FileSystem;
     using NPOI.Util;
+    using System;
+    using System.Collections.Generic;
+    using System.Diagnostics;
+    using System.IO;
+
 
     public class CryptoAPIEncryptor : Encryptor
     {
         private CryptoAPIEncryptionInfoBuilder builder;
+        private int _chunkSize = 512;
 
         protected internal CryptoAPIEncryptor(CryptoAPIEncryptionInfoBuilder builder)
         {
@@ -68,7 +69,7 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
                 byte[] encryptedVerifierHash = cipher.DoFinal(calcVerifierHash);
                 ver.SetEncryptedVerifierHash(encryptedVerifierHash);
             }
-            catch (Exception e)
+            catch(Exception e)
             {
                 throw new EncryptedDocumentException("Password Confirmation failed", e);
             }
@@ -96,37 +97,44 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
          */
         public override OutputStream GetDataStream(DirectoryNode dir)
         {
+            throw new IOException("not supported");
+        }
+
+        /**
+         * Encrypt the Document-/SummaryInformation and other optionally streams.
+         * Opposed to other crypto modes, cryptoapi is record based and can't be used
+         * to stream-encrypt a whole file
+         *
+         * @see <a href="http://msdn.microsoft.com/en-us/library/dd943321(v=office.12).aspx">2.3.5.4 RC4 CryptoAPI Encrypted Summary Stream</a>
+         */
+        public void SetSummaryEntries(DirectoryNode dir, string encryptedStream, NPOIFSFileSystem entries)
+        { 
             CipherByteArrayOutputStream bos = new CipherByteArrayOutputStream(this);
             byte[] buf = new byte[8];
-
             bos.Write(buf, 0, 8); // skip header
-            String[] entryNames = {
-            SummaryInformation.DEFAULT_STREAM_NAME,
-            DocumentSummaryInformation.DEFAULT_STREAM_NAME
-        };
 
-            List<CryptoAPIDecryptor.StreamDescriptorEntry> descList = new List<CryptoAPIDecryptor.StreamDescriptorEntry>();
-
+            var descList = new List<CryptoAPIDecryptor.StreamDescriptorEntry>();
             int block = 0;
-            foreach (String entryName in entryNames)
+            foreach (Entry entry in entries.Root)
             {
-                if (!dir.HasEntry(entryName)) continue;
-                CryptoAPIDecryptor.StreamDescriptorEntry descEntry = new CryptoAPIDecryptor.StreamDescriptorEntry();
+                if (entry.IsDirectoryEntry)
+                {
+                    continue;
+                }
+                var descEntry = new CryptoAPIDecryptor.StreamDescriptorEntry();
                 descEntry.block = block;
-                descEntry.streamOffset = (int)bos.Length;
-                descEntry.streamName = entryName;
+                descEntry.streamOffset = (int) bos.Length;
+                descEntry.streamName = entry.Name;
                 descEntry.flags = CryptoAPIDecryptor.StreamDescriptorEntry.flagStream.SetValue(0, 1);
                 descEntry.reserved2 = 0;
 
                 bos.SetBlock(block);
-                DocumentInputStream dis = dir.CreateDocumentInputStream(entryName);
+                var dis = dir.CreateDocumentInputStream(entry.Name);
                 IOUtils.Copy(dis, bos);
                 dis.Close();
 
-                descEntry.streamSize =(int)( bos.Length - descEntry.streamOffset);
+                descEntry.streamSize =(int) (bos.Length - descEntry.streamOffset);
                 descList.Add(descEntry);
-
-                dir.GetEntry(entryName).Delete();
 
                 block++;
             }
@@ -137,7 +145,7 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
             LittleEndian.PutUInt(buf, 0, descList.Count);
             bos.Write(buf, 0, 4);
 
-            foreach (CryptoAPIDecryptor.StreamDescriptorEntry sde in descList)
+            foreach(var sde in descList)
             {
                 LittleEndian.PutUInt(buf, 0, sde.streamOffset);
                 bos.Write(buf, 0, 4);
@@ -153,7 +161,7 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
                 bos.Write(buf, 0, 4);
                 byte[] nameBytes = StringUtil.GetToUnicodeLE(sde.streamName);
                 bos.Write(nameBytes, 0, nameBytes.Length);
-                LittleEndian.PutShort(buf, 0, (short)0); // null-termination
+                LittleEndian.PutShort(buf, 0, (short) 0); // null-termination
                 bos.Write(buf, 0, 2);
             }
 
@@ -167,20 +175,12 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
             bos.Write(buf, 0, 8);
             bos.SetSize(savedSize);
 
-            dir.CreateDocument("EncryptedSummary", new MemoryStream(bos.GetBuf(), 0, savedSize));
-            DocumentSummaryInformation dsi = PropertySetFactory.NewDocumentSummaryInformation();
+            dir.CreateDocument(encryptedStream, new MemoryStream(bos.GetBuf(), 0, savedSize));
+        }
 
-            try
-            {
-                dsi.Write(dir, DocumentSummaryInformation.DEFAULT_STREAM_NAME);
-            }
-            catch (WritingNotSupportedException e)
-            {
-                throw new IOException(e.Message);
-            }
-
-            //return bos;
-            throw new NotImplementedException("CipherByteArrayOutputStream should be derived from OutputStream");
+        public override ChunkedCipherOutputStream GetDataStream(OutputStream stream, int initialOffset)
+        {
+            return new CryptoAPICipherOutputStream(this, builder, stream);
         }
 
         protected int GetKeySizeInBytes()
@@ -197,6 +197,12 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
             EncryptionRecord er = new EncryptionRecordInternal(info, header, verifier);
             DataSpaceMapUtils.CreateEncryptionEntry(dir, "EncryptionInfo", er);
         }
+
+        public override void SetChunkSize(int chunkSize)
+        {
+            _chunkSize = chunkSize;
+        }
+
 
         private sealed class EncryptionRecordInternal : EncryptionRecord
         {
@@ -218,6 +224,38 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
                 verifier.Write(bos);
             }
         }
+
+        // ------------------------------------------------------------
+        // Nested output stream for CryptoAPI (record-based) encryption
+        // ------------------------------------------------------------
+        protected sealed class CryptoAPICipherOutputStream : ChunkedCipherOutputStream
+        {
+            public CryptoAPICipherOutputStream(CryptoAPIEncryptor outer, IEncryptionInfoBuilder builder, Stream stream)
+                : base(stream, outer._chunkSize, builder, outer)
+            {
+            }
+
+            // Important: flush before switching blocks
+            protected override Cipher InitCipherForBlock(Cipher cipher, int block, bool lastChunk)
+            {
+                Flush(); // ensure any pending data is written with current transform
+                return InitCipherForBlockNoFlush(cipher, block, lastChunk);
+            }
+
+            protected override Cipher InitCipherForBlockNoFlush(Cipher existing, int block, bool lastChunk)
+            {
+                var sk = encryptor.GetSecretKey();
+                return CryptoAPIDecryptor.InitCipherForBlock(existing, block, builder, sk, Cipher.ENCRYPT_MODE);
+            }
+
+            public void Flush()
+            {
+                // Force writing the current partial chunk (if any) before delegating
+                WriteChunk(continued: false);
+                base.Flush();
+            }
+        }
+
         private sealed class CipherByteArrayOutputStream : ByteArrayOutputStream
         {
             CryptoAPIEncryptor encryptor;
@@ -225,18 +263,16 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
                 : base()
             {
                 this.encryptor = encryptor;
-            }
-            Cipher cipher;
-            byte[] oneByte = { 0 };
-
-            public CipherByteArrayOutputStream()
-            {
                 SetBlock(0);
             }
 
+            Cipher cipher;
+            byte[] oneByte = { 0 };
+
+
             public byte[] GetBuf()
             {
-                return base.ToArray();
+                return base.ToByteArray();
             }
 
             public void SetSize(long count)
@@ -253,11 +289,11 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
             {
                 try
                 {
-                    oneByte[0] = (byte)b;
+                    oneByte[0] = (byte) b;
                     cipher.Update(oneByte, 0, 1, oneByte, 0);
                     base.Write(oneByte);
                 }
-                catch (Exception e)
+                catch(Exception e)
                 {
                     throw new EncryptedDocumentException(e);
                 }
@@ -270,7 +306,7 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
                     cipher.Update(b, off, len, b, off);
                     base.Write(b, off, len);
                 }
-                catch (Exception e)
+                catch(Exception e)
                 {
                     throw new EncryptedDocumentException(e);
                 }
@@ -278,5 +314,4 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
 
         }
     }
-
 }

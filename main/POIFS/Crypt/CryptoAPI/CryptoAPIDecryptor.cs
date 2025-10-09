@@ -24,17 +24,22 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
     using NPOI.POIFS.FileSystem;
     using NPOI.Util;
 
-    public class CryptoAPIDecryptor : Decryptor {
+    public class CryptoAPIDecryptor : Decryptor
+    {
 
         private long _length;
+        private int chunkSize = -1;
 
-        private sealed class SeekableMemoryStream : MemoryStream {
+        private sealed class SeekableMemoryStream : MemoryStream
+        {
             Cipher cipher;
             byte[] oneByte = { 0 };
 
-            public void Seek(int pos) {
-                if (pos > Length) {
-                    throw new IndexOutOfRangeException(string.Format( "seek position({0}) is greater than stream length({1})", pos, Length));
+            public void Seek(int pos)
+            {
+                if(pos > Length)
+                {
+                    throw new IndexOutOfRangeException(string.Format("seek position({0}) is greater than stream length({1})", pos, Length));
                 }
 
                 //this.pos = pos;
@@ -42,43 +47,55 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
                 throw new NotImplementedException();
             }
 
-            public void SetBlock(int block) {
+            public void SetBlock(int block)
+            {
                 //cipher = InitCipherForBlock(cipher, block);
                 throw new NotImplementedException();
             }
 
-            public int Read() {
+            public int Read()
+            {
                 int ch = base.ReadByte();
-                if (ch == -1) return -1;
-                oneByte[0] = (byte)ch;
-                try {
+                if(ch == -1)
+                    return -1;
+                oneByte[0] = (byte) ch;
+                try
+                {
                     cipher.Update(oneByte, 0, 1, oneByte);
-                } catch (Exception e) {
+                }
+                catch(Exception e)
+                {
                     throw new EncryptedDocumentException(e);
                 }
                 return oneByte[0];
             }
 
-            public override int Read(byte[] b, int off, int len) {
+            public override int Read(byte[] b, int off, int len)
+            {
                 int readLen = base.Read(b, off, len);
-                if (readLen == -1) return 0;
-                try {
+                if(readLen == -1)
+                    return 0;
+                try
+                {
                     cipher.Update(b, off, readLen, b, off);
-                } catch (Exception e) {
+                }
+                catch(Exception e)
+                {
                     throw new EncryptedDocumentException(e);
                 }
                 return readLen;
             }
 
             public SeekableMemoryStream(byte[] buf)
-                :base(buf)
+                : base(buf)
             {
                 //cipher = InitCipherForBlock(null, 0);
                 throw new NotImplementedException();
             }
         }
 
-        internal sealed class StreamDescriptorEntry {
+        internal sealed class StreamDescriptorEntry
+        {
             internal static BitField flagStream = BitFieldFactory.GetInstance(1);
 
             internal int streamOffset;
@@ -91,14 +108,16 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
 
         protected internal CryptoAPIDecryptor(CryptoAPIEncryptionInfoBuilder builder) : base(builder)
         {
-            
+
             _length = -1L;
         }
 
-        public override bool VerifyPassword(String password) {
+        public override bool VerifyPassword(String password)
+        {
             EncryptionVerifier ver = builder.GetVerifier();
             ISecretKey skey = GenerateSecretKey(password, ver);
-            try {
+            try
+            {
                 Cipher cipher = InitCipherForBlock(null, 0, builder, skey, Cipher.DECRYPT_MODE);
                 byte[] encryptedVerifier = ver.EncryptedVerifier;
                 byte[] verifier = new byte[encryptedVerifier.Length];
@@ -109,11 +128,14 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
                 HashAlgorithm hashAlgo = ver.HashAlgorithm;
                 MessageDigest hashAlg = CryptoFunctions.GetMessageDigest(hashAlgo);
                 byte[] calcVerifierHash = hashAlg.Digest(verifier);
-                if (Arrays.Equals(calcVerifierHash, verifierHash)) {
+                if(Arrays.Equals(calcVerifierHash, verifierHash))
+                {
                     SetSecretKey(skey);
                     return true;
                 }
-            } catch (Exception e) {
+            }
+            catch(Exception e)
+            {
                 throw new EncryptedDocumentException(e);
             }
             return false;
@@ -145,20 +167,26 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
             EncryptionHeader header = builder.GetHeader();
             int keyBits = header.KeySize;
             encKey = CryptoFunctions.GetBlock0(encKey, keyBits / 8);
-            if (keyBits == 40) {
+            if(keyBits == 40)
+            {
                 encKey = CryptoFunctions.GetBlock0(encKey, 16);
             }
             ISecretKey key = new SecretKeySpec(encKey, skey.GetAlgorithm());
-            if (cipher == null) {
+            if(cipher == null)
+            {
                 cipher = CryptoFunctions.GetCipher(key, header.CipherAlgorithm, null, null, encryptMode);
-            } else {
+            }
+            else
+            {
                 cipher.Init(encryptMode, key);
             }
             return cipher;
         }
 
-        protected internal static ISecretKey GenerateSecretKey(String password, EncryptionVerifier ver) {
-            if (password.Length > 255) {
+        protected internal static ISecretKey GenerateSecretKey(String password, EncryptionVerifier ver)
+        {
+            if(password.Length > 255)
+            {
                 password = password.Substring(0, 255);
             }
             HashAlgorithm hashAlgo = ver.HashAlgorithm;
@@ -190,15 +218,16 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
             int streamDescriptorArrayOffset = (int)leis.ReadUInt();
             int streamDescriptorArraySize = (int)leis.ReadUInt();
             sbis.Seek(streamDescriptorArrayOffset - 8, SeekOrigin.Current);// sbis.Skip(streamDescriptorArrayOffset - 8);
-            
+
             sbis.SetBlock(0);
             int encryptedStreamDescriptorCount = (int)leis.ReadUInt();
             StreamDescriptorEntry[] entries = new StreamDescriptorEntry[encryptedStreamDescriptorCount];
-            for (int i = 0; i < encryptedStreamDescriptorCount; i++) {
+            for(int i = 0; i < encryptedStreamDescriptorCount; i++)
+            {
                 StreamDescriptorEntry entry = new StreamDescriptorEntry();
                 entries[i] = entry;
-                entry.streamOffset = (int)leis.ReadUInt();
-                entry.streamSize = (int)leis.ReadUInt();
+                entry.streamOffset = (int) leis.ReadUInt();
+                entry.streamSize = (int) leis.ReadUInt();
                 entry.block = leis.ReadUShort();
                 int nameSize = leis.ReadUByte();
                 entry.flags = leis.ReadUByte();
@@ -209,7 +238,8 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
                 Debug.Assert(entry.streamName.Length == nameSize);
             }
 
-            foreach (StreamDescriptorEntry entry in entries) {
+            foreach(StreamDescriptorEntry entry in entries)
+            {
                 sbis.Seek(entry.streamOffset);
                 sbis.SetBlock(entry.block);
                 Stream is1 = new BufferedStream(sbis, entry.streamSize);
@@ -218,25 +248,50 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
 
             leis.Close();
             sbis = null;
-            
+
             bos.Seek(0, SeekOrigin.Begin); //bos.Reset();
             fsOut.WriteFileSystem(bos);
             fsOut.Close();
             _length = bos.Length;
             ByteArrayInputStream bis = new ByteArrayInputStream(bos.ToArray());
-            throw new NotImplementedException("ByteArrayInputStream should be derived from InputStream");
+            return bis;
+            //throw new NotImplementedException("ByteArrayInputStream should be derived from InputStream");
+        }
+
+        public override InputStream GetDataStream(InputStream stream, int size, int initialPos)
+        {
+            return new CryptoAPICipherInputStream(stream, size, initialPos, chunkSize, this);
         }
 
         /**
          * @return the length of the stream returned by {@link #getDataStream(DirectoryNode)}
          */
-        public override long GetLength() {
-            if (_length == -1L) {
+        public override long GetLength()
+        {
+            if(_length == -1L)
+            {
                 throw new InvalidOperationException("Decryptor.DataStream was not called");
             }
             return _length;
         }
+
+        public override void SetChunkSize(int chunkSize)
+        {
+            this.chunkSize = chunkSize;
+        }
+
+        private class CryptoAPICipherInputStream : ChunkedCipherInputStream
+        {
+            protected override Cipher InitCipherForBlock(Cipher existing, int block)
+            {
+                ISecretKey secretKey = decryptor.GetSecretKey();
+                return CryptoAPIDecryptor.InitCipherForBlock(existing, block, decryptor.builder, secretKey, Cipher.DECRYPT_MODE);
+            }
+
+            public CryptoAPICipherInputStream(InputStream stream, long size, int initialPos, int chunkSize, CryptoAPIDecryptor decryptor) :
+                base(stream, size, chunkSize, initialPos, decryptor)
+            {
+            }
+        }
     }
-
-
 }

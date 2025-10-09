@@ -15,13 +15,14 @@
    limitations under the License.
 ==================================================================== */
 
-using System.IO;
 using NPOI.POIFS.FileSystem;
+using System.IO;
 
 namespace NPOI.POIFS.Crypt
 {
     using NPOI.Util;
     using System;
+    using System.Collections.Generic;
 
     public interface IKey
     {
@@ -32,60 +33,158 @@ namespace NPOI.POIFS.Crypt
         byte[] GetEncoded();
     }
 
-    public interface ISecretKey: IKey
+    public interface ISecretKey : IKey
     {
 
     }
-    public interface IPrivateKey: IKey
+    public interface IPrivateKey : IKey
     {
 
     }
+
+    /// <summary>
+    /// C# port of Apache POI's Encryptor base class.
+    /// </summary>
     public abstract class Encryptor
-	{
-		internal static string DEFAULT_POIFS_ENTRY = Decryptor.DEFAULT_POIFS_ENTRY;
-		private ISecretKey secretKey;
+    {
+        public static readonly string DEFAULT_POIFS_ENTRY = Decryptor.DEFAULT_POIFS_ENTRY;
 
-		/**
-	 * Return a output stream for encrypted data.
-	 *
-	 * @param dir the node to write to
-	 * @return encrypted stream
-	 */
-		public abstract OutputStream GetDataStream(DirectoryNode dir);
+        protected EncryptionInfo _encryptionInfo;
+        private ISecretKey _secretKey;
 
-		// for tests
-		public abstract void ConfirmPassword(string password, byte[] keySpec, byte[] keySalt, byte[] verifier, byte[] verifierSalt , byte[] integritySalt);
+        protected Encryptor() { }
 
-		public abstract void ConfirmPassword(string password);
-
-		public static Encryptor GetInstance(EncryptionInfo info)
-		{
-			return info.Encryptor;
-		}
-
-		public OutputStream GetDataStream(NPOIFSFileSystem fs)
-		{
-			return GetDataStream(fs.Root);
-		}
-        public OutputStream GetDataStream(OPOIFSFileSystem fs)
+        protected Encryptor(Encryptor other)
         {
-            return GetDataStream(fs.Root);
+            _encryptionInfo = other._encryptionInfo;
+            // SecretKey is immutable by design in POI; share reference.
+            _secretKey = other._secretKey;
         }
 
-        public OutputStream GetDataStream(POIFSFileSystem fs)
-		{
-			return GetDataStream(fs.Root);
-		}
+        /// <summary>
+        /// Return an output stream for encrypted data (writes to the given POIFS directory node).
+        /// </summary>
+        public abstract OutputStream GetDataStream(DirectoryNode dir);
 
-		public ISecretKey GetSecretKey()
-		{
-			return secretKey;
-		}
+        /// <summary>
+        /// For tests / algorithm setup: write-side password confirmation and material setup.
+        /// </summary>
+        public abstract void ConfirmPassword(
+            string password,
+            byte[] keySpec,
+            byte[] keySalt,
+            byte[] verifier,
+            byte[] verifierSalt,
+            byte[] integritySalt);
 
-		protected void SetSecretKey(ISecretKey secretKey)
-		{
-			this.secretKey = secretKey;
-		}
-	}
+        public abstract void ConfirmPassword(string password);
 
+        /// <summary>
+        /// Factory: obtain encryptor from EncryptionInfo.
+        /// </summary>
+        public static Encryptor GetInstance(EncryptionInfo info) => info.Encryptor;
+
+        /// <summary>
+        /// Convenience overload: writes to the root directory of the given POIFS file system.
+        /// </summary>
+        public virtual OutputStream GetDataStream(POIFSFileSystem fs) => GetDataStream(fs.Root);
+
+        /// <summary>
+        /// Optional: return a stream that writes encrypted bytes directly to the given stream.
+        /// Default: not supported (matches Java behavior).
+        /// </summary>
+        public virtual ChunkedCipherOutputStream GetDataStream(OutputStream stream, int initialOffset)
+        {
+            throw new EncryptedDocumentException("this decryptor doesn't support writing directly to a stream");
+        }
+
+        public ISecretKey GetSecretKey() => _secretKey;
+
+        public void SetSecretKey(ISecretKey secretKey) => _secretKey = secretKey;
+
+        public EncryptionInfo GetEncryptionInfo() => _encryptionInfo;
+
+        public void SetEncryptionInfo(EncryptionInfo encryptionInfo) => _encryptionInfo = encryptionInfo;
+
+        /// <summary>
+        /// Sets the chunk size of the data stream.
+        /// Needs to be set before the data stream is requested.
+        /// Default: not supported (implementation-specific).
+        /// </summary>
+        public virtual void SetChunkSize(int chunkSize)
+        {
+            throw new EncryptedDocumentException("this decryptor doesn't support changing the chunk size");
+        }
+
+        /// <summary>
+        /// Generic record-like properties for diagnostics/inspection.
+        /// Mirrors the Java GenericRecord return shape with secret key bytes.
+        /// </summary>
+        public virtual IDictionary<string, Func<object>> GetGenericProperties()
+        {
+            return new Dictionary<string, Func<object>>
+            {
+                { "secretKey", () => _secretKey == null ? null : (object)_secretKey.GetEncoded() }
+            };
+        }
+    }
 }
+
+ //   public abstract class Encryptor
+	//{
+	//	internal static string DEFAULT_POIFS_ENTRY = Decryptor.DEFAULT_POIFS_ENTRY;
+	//	private ISecretKey secretKey;
+
+	//	/**
+	// * Return a output stream for encrypted data.
+	// *
+	// * @param dir the node to write to
+	// * @return encrypted stream
+	// */
+	//	public abstract OutputStream GetDataStream(DirectoryNode dir);
+
+ //       public virtual ChunkedCipherOutputStream GetDataStream(OutputStream stream, int initialOffset)
+ //       { 
+ //           throw new EncryptedDocumentException("this decryptor doesn't support writing directly to a stream");
+ //       }
+
+	//	// for tests
+	//	public abstract void ConfirmPassword(string password, byte[] keySpec, byte[] keySalt, byte[] verifier, byte[] verifierSalt , byte[] integritySalt);
+
+	//	public abstract void ConfirmPassword(string password);
+
+	//	public static Encryptor GetInstance(EncryptionInfo info)
+	//	{
+	//		return info.Encryptor;
+	//	}
+
+	//	public OutputStream GetDataStream(NPOIFSFileSystem fs)
+	//	{
+	//		return GetDataStream(fs.Root);
+	//	}
+ //       public OutputStream GetDataStream(OPOIFSFileSystem fs)
+ //       {
+ //           return GetDataStream(fs.Root);
+ //       }
+
+ //       public OutputStream GetDataStream(POIFSFileSystem fs)
+	//	{
+	//		return GetDataStream(fs.Root);
+	//	}
+
+	//	public ISecretKey GetSecretKey()
+	//	{
+	//		return secretKey;
+	//	}
+
+	//	protected void SetSecretKey(ISecretKey secretKey)
+	//	{
+	//		this.secretKey = secretKey;
+	//	}
+
+ //       public virtual void SetChunkSize(int chunkSize)
+ //       {
+ //           throw new EncryptedDocumentException("this decryptor doesn't support changing the chunk size");
+ //       }
+    //}
+//}

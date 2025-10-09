@@ -24,7 +24,7 @@ namespace NPOI.Util
     /// Wraps an <see cref="System.IO.Stream"/> providing <see cref="NPOI.Util.ILittleEndianOutput"/>
     /// </summary>
     /// <remarks>@author Josh Micich</remarks>
-    public class LittleEndianOutputStream : ILittleEndianOutput, IDisposable
+    public class LittleEndianOutputStream : FilterOutputStream,  ILittleEndianOutput, IDisposable
     {
         public void Dispose()
         {
@@ -43,15 +43,21 @@ namespace NPOI.Util
                 }
             }
         }
-        public void Close()
+        public virtual void Close()
         {
             Dispose();
         }
+
         protected internal Stream out1 = null;
 
-        public LittleEndianOutputStream(Stream out1)
+        public LittleEndianOutputStream(Stream out1) : base()
         {
             this.out1 = out1;
+        }
+
+        public LittleEndianOutputStream(OutputStream outputStream) : base(outputStream)
+        {
+            this.out1 = outputStream as Stream;
         }
 
         public void WriteByte(int v)

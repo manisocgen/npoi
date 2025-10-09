@@ -293,5 +293,10 @@ namespace NPOI.Util
         {
             s.WriteByte(value);
         }
-	}
+
+        public static implicit operator FileStream(PushbackStream v)
+        {
+            throw new NotImplementedException();
+        }
+    }
 }

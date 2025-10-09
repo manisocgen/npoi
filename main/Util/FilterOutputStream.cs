@@ -32,6 +32,11 @@ namespace NPOI.Util
 
         public override long Position { get; set; }
 
+        public FilterOutputStream()
+        {
+
+        }
+
         public FilterOutputStream(OutputStream output)
         {
             this.output = output;

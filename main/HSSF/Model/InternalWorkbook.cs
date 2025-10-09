@@ -31,6 +31,7 @@ namespace NPOI.HSSF.Model
     using System.Security;
     using NPOI.POIFS.Crypt;
     using NPOI.Util;
+    using static NPOI.HSSF.Record.FilePassRecord;
 
 
     /**
@@ -132,6 +133,8 @@ namespace NPOI.HSSF.Model
         private WriteAccessRecord writeAccess;
         [NonSerialized]
         private WriteProtectRecord writeProtect;
+        //[NonSerialized]
+        //private FilePassRecord filePassRecord;
 
         //private static POILogger log = POILogFactory.GetLogger(typeof(Workbook));
 
@@ -280,6 +283,9 @@ namespace NPOI.HSSF.Model
                         //    log.Log(DEBUG, "found FileSharing at " + k);
                         retval.fileShare = (FileSharingRecord)rec;
                         break;
+                    //case FilePassRecord.sid:
+                    //    retval.filePassRecord = (FilePassRecord)rec;
+                    //    break;
                     case NameCommentRecord.sid:
                         NameCommentRecord ncr = (NameCommentRecord)rec;
                         retval.commentRecords[ncr.NameText] = ncr;
@@ -1191,7 +1197,7 @@ namespace NPOI.HSSF.Model
                             for (int i = 0; i < boundsheets.Count; i++)
                             {
                                 len += ((BoundSheetRecord)boundsheets[i])
-                                                 .Serialize(pos + offset + len, data);
+                                                   .Serialize(pos + offset + len, data);
                             }
                             wroteBoundSheets = true;
                         }
@@ -2063,7 +2069,7 @@ namespace NPOI.HSSF.Model
                     addAt == -1; i++) {
                 Record r = records[i];
                 if(r is ExtendedFormatRecord ||
-                        r is StyleRecord) {
+                                               r is StyleRecord) {
                     // Keep going
                 } else {
                     addAt = i;
@@ -2624,11 +2630,11 @@ namespace NPOI.HSSF.Model
         //    }
 
         /**
-        * Whether date windowing is based on 1/2/1904 or 1/1/1900.
-        * Some versions of Excel (Mac) can save workbooks using 1904 date windowing.
-        *
-        * @return true if using 1904 date windowing
-        */
+         * Whether date windowing is based on 1/2/1904 or 1/1/1900.
+         * Some versions of Excel (Mac) can save workbooks using 1904 date windowing.
+         *
+         * @return true if using 1904 date windowing
+         */
         public bool IsUsing1904DateWindowing
         {
             get { return uses1904datewindowing; }
@@ -2996,6 +3002,79 @@ namespace NPOI.HSSF.Model
             }
         }
 
+        //private string _openPassword = null;
+        //internal bool HasOpenPassword => _openPassword != null;
+
+        //public string OpenPassword
+        //{
+        //    get { return _openPassword; }
+        //}
+
+        ///**
+        // * Sets the password to open the workbook.  This does not encrypt the
+        // *  contents, it just Sets a flag and a hash of the password.
+        // * @param password The password to Set.  Null or empty string to remove
+        // *  the password.
+        // */
+        //public void SetOpenPassword(string password)
+        //{
+        //    _openPassword = password;
+        //    //if(string.IsNullOrEmpty(_openPassword))
+        //    //{
+        //    //    RemoveFilePassRecord();
+        //    //}
+        //    //else
+        //    //{
+        //    //    EnsureFilePassRecord();
+        //    //}
+        //}
+
+        //private void EnsureFilePassRecord()
+        //{
+        //    // Already created / captured?
+        //    if (filePassRecord != null)
+        //        return;
+
+        //    // Find BOF (Workbook Globals)
+        //    int bofIndex = -1;
+        //    for (int i = 0; i < records.Count; i++)
+        //    {
+        //        if (records[i].Sid == BOFRecord.sid)
+        //        {
+        //            bofIndex = i;
+        //            break;
+        //        }
+        //    }
+        //    if (bofIndex == -1)
+        //        throw new InvalidOperationException("BOFRecord not found – cannot insert FilePassRecord.");
+
+        //    int insertAt = bofIndex + 1;
+
+        //    // If there is already a FilePassRecord immediately after BOF, reuse it
+        //    if (insertAt < records.Count && records[insertAt].Sid == FilePassRecord.sid)
+        //    {
+        //        filePassRecord = (FilePassRecord)records[insertAt];
+        //        return;
+        //    }
+
+        //    // Build new FilePassRecord
+        //    var newFp = FilePassRecord.CreateFilePassRecord(_openPassword);
+        //    if (newFp == null)
+        //        return;
+
+        //    filePassRecord = newFp;
+        //    records.Add(insertAt, filePassRecord);
+        //}
+
+        //private void RemoveFilePassRecord()
+        //{
+        //    if (filePassRecord == null)
+        //        return;
+
+        //    int removedAt = records.Records.IndexOf(filePassRecord);
+        //    records.Remove(removedAt);
+        //}
+
         /**
          * protect a workbook with a password (not encypted, just Sets Writeprotect
          * flags and the password.
@@ -3109,6 +3188,11 @@ namespace NPOI.HSSF.Model
         public bool ChangeExternalReference(String oldUrl, String newUrl)
         {
             return linkTable.ChangeExternalReference(oldUrl, newUrl);
+        }
+
+        public WorkbookRecordList GetWorkbookRecordList()
+        {
+            return records;
         }
     }
 }

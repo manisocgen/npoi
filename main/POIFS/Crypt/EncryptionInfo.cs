@@ -15,14 +15,15 @@
    limitations under the License.
 ==================================================================== */
 
-using System.IO;
 using NPOI.POIFS.FileSystem;
 using NPOI.Util;
+using System.IO;
 
 namespace NPOI.POIFS.Crypt
 {
     using System;
     using System.Reflection;
+    using static System.Net.WebRequestMethods;
 
     public class EncryptionInfo
     {
@@ -82,43 +83,45 @@ namespace NPOI.POIFS.Crypt
      */
 
         public EncryptionInfo(DirectoryNode dir)
-            : this(dir.CreateDocumentInputStream("EncryptionInfo"), false)
+            : this(dir.CreateDocumentInputStream("EncryptionInfo"), null)
         {
 
         }
 
-        public EncryptionInfo(ILittleEndianInput dis, bool isCryptoAPI)
+        public EncryptionInfo(ILittleEndianInput dis, EncryptionMode preferredEncryptionMode)
         {
-            EncryptionMode encryptionMode;
-            _versionMajor = dis.ReadShort();
-            _versionMinor = dis.ReadShort();
-
-            if (!isCryptoAPI
-                && VersionMajor == EncryptionMode.BinaryRC4.VersionMajor
-                && VersionMinor == EncryptionMode.BinaryRC4.VersionMinor)
+            if (preferredEncryptionMode == EncryptionMode.XOR)
             {
-                encryptionMode = EncryptionMode.BinaryRC4;
+                _versionMajor = EncryptionMode.XOR.VersionMajor;
+                _versionMinor = EncryptionMode.XOR.VersionMinor;
+            }
+            else
+            {
+                _versionMajor = dis.ReadShort();
+                _versionMinor = dis.ReadShort();
+            }
+
+            if (VersionMajor == EncryptionMode.XOR.VersionMajor
+               && VersionMinor == EncryptionMode.XOR.VersionMinor)
+            {
+                _encryptionMode = EncryptionMode.XOR;
                 _encryptionFlags = -1;
             }
-            else if (!isCryptoAPI
-                     && VersionMajor == EncryptionMode.Agile.VersionMajor
-                     && VersionMinor == EncryptionMode.Agile.VersionMinor)
+
+            else if (VersionMajor == EncryptionMode.BinaryRC4.VersionMajor
+                 && VersionMinor == EncryptionMode.BinaryRC4.VersionMinor)
             {
-                encryptionMode = EncryptionMode.Agile;
-                _encryptionFlags = dis.ReadInt();
+                _encryptionMode = EncryptionMode.BinaryRC4;
+                _encryptionFlags = -1;
             }
-            else if (!isCryptoAPI
-                     && 2 <= VersionMajor && VersionMajor <= 4
-                     && VersionMinor == EncryptionMode.Standard.VersionMinor)
+            else if (2 <= VersionMajor && VersionMajor <= 4 && VersionMinor == 2)
             {
-                encryptionMode = EncryptionMode.Standard;
                 _encryptionFlags = dis.ReadInt();
+                _encryptionMode = (preferredEncryptionMode == EncryptionMode.CryptoAPI || !flagAES.IsSet(_encryptionFlags)) ? EncryptionMode.CryptoAPI : EncryptionMode.Standard;
             }
-            else if (isCryptoAPI
-                     && 2 <= VersionMajor && VersionMajor <= 4
-                     && VersionMinor == EncryptionMode.CryptoAPI.VersionMinor)
+            else if (VersionMajor == EncryptionMode.Agile.VersionMajor && VersionMinor == EncryptionMode.Agile.VersionMinor)
             {
-                encryptionMode = EncryptionMode.CryptoAPI;
+                _encryptionMode = EncryptionMode.Agile;
                 _encryptionFlags = dis.ReadInt();
             }
             else
@@ -136,7 +139,7 @@ namespace NPOI.POIFS.Crypt
             IEncryptionInfoBuilder eib;
             try
             {
-                eib = GetBuilder(encryptionMode);
+                eib = GetBuilder(_encryptionMode);
             }
             catch (Exception e)
             {
@@ -270,6 +273,7 @@ namespace NPOI.POIFS.Crypt
             , ChainingMode chainingMode
             )
         {
+            _encryptionMode = encryptionMode;
             _versionMajor = encryptionMode.VersionMajor;
             _versionMinor = encryptionMode.VersionMinor;
             _encryptionFlags = encryptionMode.EncryptionFlags;
@@ -279,7 +283,7 @@ namespace NPOI.POIFS.Crypt
             {
                 eib = GetBuilder(encryptionMode);
             }
-            catch (Exception e)
+            catch(Exception e)
             {
                 throw new EncryptedDocumentException(e);
             }
@@ -296,18 +300,18 @@ namespace NPOI.POIFS.Crypt
         {
             Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
             Type t = null;
-            foreach (Assembly assembly in assemblies)
+            foreach(Assembly assembly in assemblies)
             {
                 t = assembly.GetType(encryptionMode.Builder);
-                if (t != null)
+                if(t != null)
                     break;
             }
-            if (t == null)
+            if(t == null)
             {
                 throw new EncryptedDocumentException("Not found type " + encryptionMode.Builder);
             }
             IEncryptionInfoBuilder eib = null;
-            eib = (IEncryptionInfoBuilder)t.Assembly.CreateInstance(encryptionMode.Builder);
+            eib = (IEncryptionInfoBuilder) t.Assembly.CreateInstance(encryptionMode.Builder);
             return eib;
         }
 
@@ -316,7 +320,7 @@ namespace NPOI.POIFS.Crypt
         {
             get { return _versionMajor; }
         }
-        
+
         private readonly int _versionMinor;
         public int VersionMinor
         {
@@ -347,6 +351,33 @@ namespace NPOI.POIFS.Crypt
         public Encryptor Encryptor
         {
             get { return _encryptor; }
+        }
+
+        private readonly EncryptionMode _encryptionMode;
+        public EncryptionMode EncryptionMode
+        {
+            get { return _encryptionMode; }
+        }
+
+        /**
+ * @return true, if Document Summary / Summary are encrypted and stored in the {@code EncryptedStream} stream,
+ * otherwise the Summaries aren't encrypted and located in their usual streams
+ */
+        public bool IsDocPropsEncrypted()
+        {
+            return !flagDocProps.IsSet(_encryptionFlags);
+        }
+
+        public override string ToString()
+        {
+            return "EncryptionInfo:" +
+                   "\n\tversionMajor: " + VersionMajor +
+                   "\n\tversionMinor: " + VersionMinor +
+                   "\n\tencryptionFlags: " + EncryptionFlags +
+                   "\n\theader: " + Header +
+                   "\n\tverifier: " + Verifier +
+                   "\n\tdecryptor: " + Decryptor +
+                   "\n\tencryptor: " + Encryptor;
         }
     }
 }

@@ -18,8 +18,8 @@
 namespace NPOI.HSSF.Record.Crypto
 {
     using System;
-    using System.Text; 
-using Cysharp.Text;
+    using System.Text;
+    using Cysharp.Text;
     using NPOI.Util;
 
     /**
@@ -29,61 +29,111 @@ using Cysharp.Text;
      *
      * @author Josh Micich
      */
-    internal sealed class RC4
+    public sealed class RC4
     {
-
         private int _i, _j;
-        private readonly byte[] _s = new byte[256];
+        private readonly byte[] _state = new byte[256];
+
+        public RC4()
+        {
+        }
 
         public RC4(byte[] key)
         {
-            int key_length = key.Length;
+            InitializeState(key);
+        }
 
-            for (int i = 0; i < 256; i++)
-                _s[i] = (byte)i;
-
-            for (int i = 0, j = 0; i < 256; i++)
+        /// <summary>
+        /// Initialize the RC4 state with a given key
+        /// </summary>
+        /// <param name="key">The key bytes</param>
+        public void InitializeState(byte[] key)
+        {
+            for(int i = 0; i < 256; i++)
             {
-                byte temp;
-
-                j = (j + key[i % key_length] + _s[i]) & 255;
-                temp = _s[i];
-                _s[i] = _s[j];
-                _s[j] = temp;
+                _state[i] = (byte) i;
             }
 
             _i = 0;
             _j = 0;
+            int num = 0;
+            for(int j = 0; j < 256; j++)
+            {
+                num = (num + key[j % key.Length] + _state[j]) % 256;
+                SwapBytes(_state, j, num);
+            }
+
+        }
+
+        /// <summary>
+        /// Advance the RC4 state by a specified number of steps without generating output
+        /// </summary>
+        /// <param name="steps">Number of steps to advance</param>
+        public void AdvanceState(int steps = 1)
+        {
+            for(int step = 0; step < steps; step++)
+            {
+                _i = (_i + 1) % 256;
+                _j = (_j + _state[_i]) % 256;
+                SwapBytes(_state, _i, _j);
+            }
+        }
+
+        /// <summary>
+        /// Convert (encrypt/decrypt) data in place
+        /// </summary>
+        /// <param name="buffer">Buffer containing data to convert</param>
+        /// <param name="offset">Starting offset in the buffer</param>
+        /// <param name="count">Number of bytes to convert</param>
+        public void ConvertData(byte[] buffer, int offset, int count)
+        {
+            int end = offset + count;
+            for(int idx = offset; idx < end; idx++)
+            {
+                // Use AdvanceState and then generate keystream byte
+                AdvanceState();
+                buffer[idx] ^= _state[(_state[_i] + _state[_j]) % 256];
+            }
+        }
+
+        /// <summary>
+        /// Convert (encrypt/decrypt) entire data buffer in place
+        /// </summary>
+        /// <param name="buffer">Buffer to convert</param>
+        public void ConvertData(byte[] buffer)
+        {
+            ConvertData(buffer, 0, buffer.Length);
+        }
+
+        /// <summary>
+        /// Swap two bytes in the S-box
+        /// </summary>
+        /// <param name="array">The array</param>
+        /// <param name="i">First index</param>
+        /// <param name="j">Second index</param>
+        private static void SwapBytes(byte[] array, int i, int j)
+        {
+            byte temp = array[i];
+            array[i] = array[j];
+            array[j] = temp;
         }
 
         public byte Output()
         {
-            byte temp;
-            _i = (_i + 1) & 255;
-            _j = (_j + _s[_i]) & 255;
+            // Use AdvanceState to update the internal state
+            AdvanceState();
 
-            temp = _s[_i];
-            _s[_i] = _s[_j];
-            _s[_j] = temp;
-
-            return _s[(_s[_i] + _s[_j]) & 255];
+            // Generate and return the keystream byte
+            return _state[(_state[_i] + _state[_j]) % 256];
         }
 
         public void Encrypt(byte[] in1)
         {
-            for (int i = 0; i < in1.Length; i++)
-            {
-                in1[i] = (byte)(in1[i] ^ Output());
-            }
+            ConvertData(in1, 0, in1.Length);
         }
         public void Encrypt(byte[] in1, int OffSet, int len)
         {
-            int end = OffSet + len;
-            for (int i = OffSet; i < end; i++)
-            {
-                in1[i] = (byte)(in1[i] ^ Output());
-            }
-
+            ConvertData(in1, OffSet, len);
         }
         public override String ToString()
         {
@@ -97,7 +147,7 @@ using Cysharp.Text;
             sb.Append(_j);
             sb.Append("]");
             sb.Append("\n");
-            sb.Append(HexDump.Dump(_s, 0, 0));
+            sb.Append(HexDump.Dump(_state, 0, 0));
 
             return sb.ToString();
         }

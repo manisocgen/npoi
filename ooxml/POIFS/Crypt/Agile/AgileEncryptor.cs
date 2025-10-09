@@ -168,7 +168,7 @@ namespace NPOI.POIFS.Crypt.Agile
         public override OutputStream GetDataStream(DirectoryNode dir)
         {
             // TODO: Initialize headers
-            AgileCipherOutputStream countStream = new AgileCipherOutputStream(dir, builder, GetSecretKey(), this);
+            AgileCipherOutputStream countStream = new AgileCipherOutputStream(dir, builder, this);
             //return countStream.GetStream();
             throw new NotImplementedException("AgileCipherOutputStream should be derived from OutputStream");
         }
@@ -330,7 +330,7 @@ namespace NPOI.POIFS.Crypt.Agile
         {
             DataSpaceMapUtils.AddDefaultDataSpace(dir);
 
-            EncryptionInfo info = builder.GetInfo();
+            EncryptionInfo info = builder.GetEncryptionInfo();
 
             //EncryptionRecord er = new EncryptionRecord(){
             //    public void Write(LittleEndianByteArrayOutputStream bos) {
@@ -366,19 +366,15 @@ namespace NPOI.POIFS.Crypt.Agile
          * unencrypted data as specified in section 2.3.4.4.
          */
         private sealed class AgileCipherOutputStream : ChunkedCipherOutputStream {
-            ISecretKey skey;
-            public AgileCipherOutputStream(DirectoryNode dir, IEncryptionInfoBuilder builder, ISecretKey skey, AgileEncryptor encryptor)
+            public AgileCipherOutputStream(DirectoryNode dir, IEncryptionInfoBuilder builder, AgileEncryptor encryptor)
                     : base(dir, 4096, builder, encryptor)
             {
-                this.builder = builder;
-                this.skey = skey;
-                this.encryptor = encryptor;
             }
 
 
             protected override Cipher InitCipherForBlock(Cipher existing, int block, bool lastChunk)
             {
-                return AgileDecryptor.InitCipherForBlock(existing, block, lastChunk, builder, skey, Cipher.ENCRYPT_MODE);
+                return AgileDecryptor.InitCipherForBlock(existing, block, lastChunk, builder, encryptor.GetSecretKey(), Cipher.ENCRYPT_MODE);
             }
 
 

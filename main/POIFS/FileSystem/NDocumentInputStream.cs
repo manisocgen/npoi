@@ -211,7 +211,7 @@ namespace NPOI.POIFS.FileSystem
             {
                 // Grab the right block
                 _data.MoveNext();
-                _buffer = _data.Current;
+                _buffer = _data.Current;     
                 _current_block_count++;
 
                 // Skip to the right place in it
