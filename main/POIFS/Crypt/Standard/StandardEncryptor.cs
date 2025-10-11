@@ -97,9 +97,7 @@ namespace NPOI.POIFS.Crypt.Standard
         {
             CreateEncryptionInfoEntry(dir);
             DataSpaceMapUtils.AddDefaultDataSpace(dir);
-            Stream countStream = new StandardCipherOutputStream(dir, this);
-            //return countStream;
-            throw new NotImplementedException("StandardCipherOutputStream should be derived from OutputStream");
+            return new StandardCipherOutputStream(dir, this);
         }
 
         protected class StandardCipherOutputStream : ByteArrayOutputStream, POIFSWriterListener
@@ -110,6 +108,7 @@ namespace NPOI.POIFS.Crypt.Standard
             protected DirectoryNode dir;
             private readonly CipherOutputStream out1;
             private readonly FileStream rawStream;// maybe has memory leak problem.
+            private bool closed = false;
 
             protected internal StandardCipherOutputStream(DirectoryNode dir, StandardEncryptor encryptor)
             {
@@ -128,10 +127,7 @@ namespace NPOI.POIFS.Crypt.Standard
                 // KeyData.blockSize value. Any pAdding bytes can be used. Note that the StreamSize
                 // field of the EncryptedPackage field specifies the number of bytes of 
                 // unencrypted data as specified in section 2.3.4.4.
-                CipherOutputStream cryptStream = new CipherOutputStream(rawStream, 
-                    encryptor.GetCipher(encryptor.GetSecretKey(), "PKCS5Padding"));
-
-                this.out1 = cryptStream;
+                this.out1 = new CipherOutputStream(rawStream, encryptor.GetCipher(encryptor.GetSecretKey(), "PKCS5Padding"));
             }
 
 
@@ -150,11 +146,14 @@ namespace NPOI.POIFS.Crypt.Standard
 
             public override void Close()
             {
+                if (closed) return;
+
                 // the CipherOutputStream Adds the pAdding bytes on close()
                 base.Close();
                 WriteToPOIFS();
-                //rawStream.Close();
-                //rawStream = null;
+                rawStream.Close();
+                fileOut.Delete();
+                closed = true;
             }
 
             void WriteToPOIFS()
@@ -181,7 +180,7 @@ namespace NPOI.POIFS.Crypt.Standard
                     //fis.Close();
                     rawStream.Position = rawPos;
                     //File.Delete(fileOut.FullName + ".copy");
-                    fileOut.Delete();
+                    //fileOut.Delete();
                     
 
                     leos.Close();
@@ -207,7 +206,7 @@ namespace NPOI.POIFS.Crypt.Standard
             EncryptionRecord er = new EncryptionRecordInternal(info, header, verifier);
 
 
-            DataSpaceMapUtils.CreateEncryptionEntry(dir, "EncryptionInfo", er);
+            DataSpaceMapUtils.CreateEncryptionEntry(dir, EncryptionInfo.ENCRYPTION_INFO_ENTRY, er);
 
             // TODO: any properties???
         }

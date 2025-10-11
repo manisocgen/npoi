@@ -1545,7 +1545,7 @@ namespace NPOI.HSSF.UserModel
             bos.Position = 0;
             var plain = new LittleEndianInputStream(bos);
             var leos = new LittleEndianByteArrayOutputStream(buf, 0);
-            enc.SetChunkSize(Biff8RC4.RC4_REKEYING_INTERVAL);
+            enc.SetChunkSize(Biff8DecryptingStream.RC4_REKEYING_INTERVAL);
             byte[] tmp = new byte[1024];
 
             try
@@ -1558,7 +1558,7 @@ namespace NPOI.HSSF.UserModel
                     IOUtils.ReadFully(plain, tmp, 0, 4);
                     int sid = LittleEndian.GetUShort(tmp, 0);
                     int len = LittleEndian.GetUShort(tmp, 2);
-                    bool isPlain = Biff8RC4.IsNeverEncryptedRecord(sid);
+                    bool isPlain = Biff8DecryptingStream.IsNeverEncryptedRecord(sid);
 
                     os.SetNextRecordSize(len, isPlain);
                     os.WritePlain(tmp, 0, 4);
@@ -2248,31 +2248,6 @@ namespace NPOI.HSSF.UserModel
         public int LinkExternalWorkbook(String name, IWorkbook workbook)
         {
             return this.workbook.LinkExternalWorkbook(name, workbook);
-        }
-
-        /// <summary>
-        /// Indicates whether the workbook currently has an "open password"
-        /// configured. When true, Excel will prompt for a password
-        /// before allowing the file to be opened. This flag reflects
-        /// the presence of password-based opening protection (not the
-        /// simple write-protection or modify password feature).
-        /// </summary>
-        public bool HasOpenPassword
-        {
-            get { return !string.IsNullOrEmpty(Biff8EncryptionKey.CurrentUserPassword); }
-        }
-
-        /// <summary>
-        /// Sets the password required to open the workbook.
-        /// This stores the password hash in the underlying workbook
-        /// protection records. By default RC4 hashing is used,
-        /// </summary>
-        /// <param name="password">
-        /// The plain-text password to set. Setting null or Empty removes the protection
-        /// </param>
-        public void SetOpenPassword(string password)
-        {
-            Biff8EncryptionKey.CurrentUserPassword = password;
         }
 
         /// <summary>

@@ -212,7 +212,7 @@ namespace NPOI.POIFS.Crypt
                 /*if (Cipher.GetMaxAllowedKeyLength(cipherAlgorithm.jceId) < keySizeInBytes * 8) {
                     throw new EncryptedDocumentException("Export Restrictions in place - please install JCE Unlimited Strength Jurisdiction Policy files");
                 }*/
-
+                
                 Cipher cipher;
                 if (cipherAlgorithm == CipherAlgorithm.rc4) {
                     cipher = Cipher.GetInstance(cipherAlgorithm.jceId);
@@ -220,8 +220,11 @@ namespace NPOI.POIFS.Crypt
                     registerBouncyCastle();
                     cipher = Cipher.GetInstance(cipherAlgorithm.jceId + "/" + chain.jceId + "/" + padding, "BC");
                 } else {
-                    cipher = Cipher.GetInstance(cipherAlgorithm.jceId + "/" + chain.jceId + "/" + padding);
+                    // For AES and other standard algorithms
+                    string transformation = cipherAlgorithm.jceId + "/" + chain.jceId + "/" + padding;
+                    cipher = Cipher.GetInstance(transformation);
                 }
+                cipher.Algorithm = cipherAlgorithm;
 
                 if (vec == null) {
                     cipher.Init(cipherMode, key);
@@ -567,34 +570,114 @@ namespace NPOI.POIFS.Crypt
 
         public class Mac
         {
-            internal static Mac GetInstance(string jceHmacId, string v)
+            private Org.BouncyCastle.Crypto.Macs.HMac hmacEngine;
+            private Org.BouncyCastle.Crypto.IDigest digest;
+            private bool initialized = false;
+
+            internal static Mac GetInstance(string jceHmacId, string provider)
             {
-                throw new NotImplementedException();
+                return GetInstance(jceHmacId);
             }
 
             internal static Mac GetInstance(string jceHmacId)
             {
-                throw new NotImplementedException();
+                var mac = new Mac();
+                
+                switch (jceHmacId.ToUpper())
+                {
+                    case "HMACSHA1":
+                    case "HMAC-SHA1":
+                        mac.digest = new Org.BouncyCastle.Crypto.Digests.Sha1Digest();
+                        break;
+                    case "HMACSHA256":
+                    case "HMAC-SHA256":
+                        mac.digest = new Org.BouncyCastle.Crypto.Digests.Sha256Digest();
+                        break;
+                    case "HMACSHA384":
+                    case "HMAC-SHA384":
+                        mac.digest = new Org.BouncyCastle.Crypto.Digests.Sha384Digest();
+                        break;
+                    case "HMACSHA512":
+                    case "HMAC-SHA512":
+                        mac.digest = new Org.BouncyCastle.Crypto.Digests.Sha512Digest();
+                        break;
+                    case "HMACMD5":
+                    case "HMAC-MD5":
+                        mac.digest = new Org.BouncyCastle.Crypto.Digests.MD5Digest();
+                        break;
+                    default:
+                        throw new NotSupportedException($"HMAC algorithm {jceHmacId} not supported");
+                }
+
+                mac.hmacEngine = new Org.BouncyCastle.Crypto.Macs.HMac(mac.digest);
+                return mac;
             }
 
-            public byte[] DoFinal(object encoded)
+            public byte[] DoFinal(byte[] input)
             {
-                throw new NotImplementedException();
+                if (!initialized)
+                    throw new InvalidOperationException("Mac not initialized");
+
+                // Update with input data
+                hmacEngine.BlockUpdate(input, 0, input.Length);
+                
+                // Get the result
+                byte[] result = new byte[hmacEngine.GetMacSize()];
+                hmacEngine.DoFinal(result, 0);
+                
+                return result;
             }
 
             public byte[] DoFinal()
             {
-                throw new NotImplementedException();
+                if (!initialized)
+                    throw new InvalidOperationException("Mac not initialized");
+
+                byte[] result = new byte[hmacEngine.GetMacSize()];
+                hmacEngine.DoFinal(result, 0);
+                return result;
             }
 
             public void Init(ISecretKey secretKey)
             {
-                throw new NotImplementedException();
+                if (hmacEngine == null)
+                    throw new InvalidOperationException("Mac not created properly");
+
+                byte[] keyBytes = secretKey.GetEncoded();
+                var keyParam = new Org.BouncyCastle.Crypto.Parameters.KeyParameter(keyBytes);
+                hmacEngine.Init(keyParam);
+                initialized = true;
             }
 
-            public void Update(byte[] buf, int v, int readBytes)
+            public void Update(byte[] buf, int offset, int readBytes)
             {
-                throw new NotImplementedException();
+                if (!initialized)
+                    throw new InvalidOperationException("Mac not initialized");
+
+                hmacEngine.BlockUpdate(buf, offset, readBytes);
+            }
+
+            public void Update(byte[] input)
+            {
+                Update(input, 0, input.Length);
+            }
+
+            public void Reset()
+            {
+                if (hmacEngine != null)
+                {
+                    hmacEngine.Reset();
+                }
+            }
+
+            public void Dispose()
+            {
+                // BouncyCastle objects don't typically need explicit disposal
+                // but we can reset and clear references
+                hmacEngine?.Reset();
+                hmacEngine = null;
+                digest = null;
+                initialized = false;
             }
         }
     }

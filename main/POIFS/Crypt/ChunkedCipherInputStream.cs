@@ -100,7 +100,7 @@ namespace NPOI.POIFS.Crypt
         public override long Position
         {
             get => _pos;
-            set => throw new NotSupportedException();
+            set => _pos = value;
         }
 
         public override void Flush() { /* no-op */ }

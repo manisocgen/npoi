@@ -1,30 +1,38 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Text;
 
 namespace NPOI.Util
 {
-    /// <summary>
-    /// Java-like OutputStream base. Provides convenience Write(byte[]) and delegates Write(byte[],off,len)
-    /// calls to abstract single-byte Write(int). Read/Seek operations are not supported.
-    /// </summary>
     public abstract class OutputStream : Stream
     {
-        // ---- Java-style API ----
         public abstract void Write(int b);
 
         public virtual void Write(byte[] b)
         {
-            if (b == null) throw new ArgumentNullException(nameof(b));
             Write(b, 0, b.Length);
         }
 
-        public override void Write(byte[] buffer, int offset, int count)
+        public override void Write(byte[] b, int off, int len)
         {
-            if (buffer == null) throw new ArgumentNullException(nameof(buffer));
-            if ((uint)offset > buffer.Length || (uint)count > buffer.Length - offset) throw new ArgumentOutOfRangeException();
-            for (int i = 0; i < count; i++)
+            if (b == null)
             {
-                Write(buffer[offset + i]);
+                throw new NullReferenceException();
+            }
+            else if ((off < 0) || (off > b.Length) || (len < 0) ||
+                         ((off + len) > b.Length) || ((off + len) < 0))
+            {
+                throw new IndexOutOfRangeException();
+            }
+            else if (len == 0)
+            {
+                return;
+            }
+            for (int i = 0; i < len; i++)
+            {
+                Write(b[off + i]);
             }
         }
 

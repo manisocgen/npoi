@@ -1,7 +1,7 @@
 /* ====================================================================
    Licensed to the Apache Software Foundation (ASF) under one or more
    contributor license agreements.  See the NOTICE file distributed with
-   this work for additional information regarding copyright ownership.
+   this work for Additional information regarding copyright ownership.
    The ASF licenses this file to You under the Apache License, Version 2.0
    (the "License"); you may not use this file except in compliance with
    the License.  You may obtain a copy of the License at
@@ -14,21 +14,20 @@
    See the License for the specific language governing permissions and
    limitations under the License.
    =================================================================== */
-
-using NPOI.POIFS.EventFileSystem;
-using NPOI.POIFS.FileSystem;
-using NPOI.Util;
-using System;
-using System.IO;
-using System.Security.Cryptography;
-
 namespace NPOI.POIFS.Crypt
 {
+    using NPOI.POIFS.EventFileSystem;
+    using NPOI.POIFS.FileSystem;
+    using NPOI.Util;
+    using Org.BouncyCastle.Crypto;
+    using SixLabors.ImageSharp.Memory;
+    using System;
+    using System.IO;
+    using System.Security.Cryptography;
+
     public abstract class ChunkedCipherOutputStream : LittleEndianOutputStream
     {
         private const int STREAMING = -1;
-
-        private readonly Stream _out;
 
         private readonly int _chunkSize;
         private readonly int _chunkBits;
@@ -47,66 +46,44 @@ namespace NPOI.POIFS.Crypt
         protected readonly IEncryptionInfoBuilder builder;
         protected readonly Encryptor encryptor;
 
-        protected ChunkedCipherOutputStream(Stream stream, int chunkSize, IEncryptionInfoBuilder builder, Encryptor encryptor) : base(stream)
+        protected ChunkedCipherOutputStream(OutputStream stream, int chunkSize, IEncryptionInfoBuilder builder, Encryptor encryptor) : base(stream)
         {
-            _out = stream ?? throw new ArgumentNullException(nameof(stream));
-            if(!stream.CanWrite)
-                throw new ArgumentException("Stream must be writable.", nameof(stream));
-
             _chunkSize = chunkSize;
             int cs = (chunkSize == STREAMING) ? 4096 : chunkSize;
-            if(!IsPowerOfTwo(cs))
-                throw new ArgumentException("Chunk size must be a power of two.", nameof(chunkSize));
-
             _chunk = new byte[cs];
             _plainByteFlags = new SparseBitSet(cs);
             _chunkBits =  Number.BitCount(GetChunkMask());
+            this.fileOut = null;
+            this.dir = null;
             this.builder = builder;
             this.encryptor = encryptor;
-
             _cipher = InitCipherForBlock(null, 0, lastChunk: false);
         }
 
         protected ChunkedCipherOutputStream(DirectoryNode dir, int chunkSize, IEncryptionInfoBuilder builder, Encryptor encryptor) : base(null)
         {
-            this.dir = dir;
             _chunkSize = chunkSize;
-            _chunkBits = Number.BitCount(GetChunkMask());
+            int cs = chunkSize == STREAMING ? 4096 : chunkSize;
             _chunk = new byte[chunkSize];
+            _plainByteFlags = new SparseBitSet(cs);
+            _chunkBits = Number.BitCount(GetChunkMask());
+            fileOut = TempFile.CreateTempFile("encrypted_package", "crypt");
+            this.out1 = new FileStream(fileOut.FullName, FileMode.Create, FileAccess.ReadWrite, FileShare.Read);
+            this.dir = dir;
             this.builder = builder;
             this.encryptor = encryptor;
-
-            fileOut = TempFile.CreateTempFile("encrypted_package", "crypt");
-            //fileOut.DeleteOnExit();
-            this.out1 = fileOut.Create();
-            this.dir = dir;
             _cipher = InitCipherForBlock(null, 0, false);
         }
-
-        // ---- Abstract cipher hooks ----
 
         public Cipher InitCipherForBlock(int block, bool lastChunk)
             => InitCipherForBlock(_cipher, block, lastChunk);
 
-        /// <summary>
-        /// Implement this in subclasses to (re)initialize the transform for a given block index.
-        /// </summary>
         protected abstract Cipher InitCipherForBlock(Cipher existing, int block, bool lastChunk);
 
-        protected virtual void CalculateChecksum(FileInfo fileOut, int oleStreamSize) 
-        {
-            // default no-op
-        }
+        protected abstract void CalculateChecksum(FileInfo fileOut, int oleStreamSize);
 
-        protected virtual void CreateEncryptionInfoEntry(DirectoryNode dir, FileInfo tmpFile) 
-        {
-            // default no-op
-        }
+        protected abstract void CreateEncryptionInfoEntry(DirectoryNode dir, FileInfo tmpFile);
 
-        /// <summary>
-        /// Helper to work around providers that don't reset on finalization (kept for parity with Java version).
-        /// In .NET this typically isn't needed; by default this just calls <see cref="InitCipherForBlock(Cipher, int, bool)"/>.
-        /// </summary>
         protected virtual Cipher InitCipherForBlockNoFlush(Cipher existing, int block, bool lastChunk)
             => InitCipherForBlock(existing, block, lastChunk);
 
@@ -124,41 +101,47 @@ namespace NPOI.POIFS.Crypt
             base.Flush();
         }
 
-        public new void Write(byte[] buffer, int offset, int count)
+        public override void Write(int b)
         {
-            if(buffer == null)
-                throw new ArgumentNullException(nameof(buffer));
-            if((uint) offset > buffer.Length || (uint) count > buffer.Length - offset)
-                throw new ArgumentOutOfRangeException();
-            if(count == 0)
-                return;
+            Write(new byte[] { (byte)b });
+        }
 
+        public override void Write(byte[] b)
+        {
+            Write(b, 0, b.Length);
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
             WriteInternal(buffer, offset, count, writePlain: false);
         }
 
         public void WritePlain(byte[] buffer, int offset, int count)
         {
-            if(buffer == null)
-                throw new ArgumentNullException(nameof(buffer));
-            if((uint) offset > buffer.Length || (uint) count > buffer.Length - offset)
-                throw new ArgumentOutOfRangeException();
-            if(count == 0)
-                return;
-
             WriteInternal(buffer, offset, count, writePlain: true);
         }
 
         private void WriteInternal(byte[] buffer, int offset, int count, bool writePlain)
         {
+            if (count == 0)
+            {
+                return;
+            }
+
+            if (count < 0 || buffer.Length < offset + count)
+            {
+                throw new IOException("not enough bytes in your input buffer");
+            }
+
             int chunkMask = GetChunkMask();
-            while(count > 0)
+            while (count > 0)
             {
                 int posInChunk = (int)(_pos & chunkMask);
                 int spaceInChunk = _chunk.Length - posInChunk;
                 int nextLen = Math.Min(spaceInChunk, count);
 
                 Buffer.BlockCopy(buffer, offset, _chunk, posInChunk, nextLen);
-                if(writePlain)
+                if (writePlain)
                 {
                     _plainByteFlags.Set(posInChunk, posInChunk + nextLen);
                 }
@@ -168,7 +151,7 @@ namespace NPOI.POIFS.Crypt
                 offset += nextLen;
                 count -= nextLen;
 
-                if((_pos & chunkMask) == 0)
+                if ((_pos & chunkMask) == 0)
                 {
                     // chunk boundary reached
                     WriteChunk(continued: count > 0);
@@ -180,14 +163,14 @@ namespace NPOI.POIFS.Crypt
 
         protected void WriteChunk(bool continued)
         {
-            if(_pos == 0 || _totalPos == _written)
+            if (_pos == 0 || _totalPos == _written)
                 return;
 
             int posInChunk = (int)(_pos & GetChunkMask());
             int index = (int)(_pos >> _chunkBits);
 
             bool lastChunk;
-            if(posInChunk == 0)
+            if (posInChunk == 0)
             {
                 index--;
                 posInChunk = _chunk.Length;
@@ -205,9 +188,9 @@ namespace NPOI.POIFS.Crypt
                 long oldPos = _pos;
 
                 _pos = 0; // reset (streaming scenario)
-                if(_chunkSize == STREAMING)
+                if (_chunkSize == STREAMING)
                 {
-                    if(continued)
+                    if (continued)
                         doFinal = false;
                 }
                 else
@@ -218,12 +201,12 @@ namespace NPOI.POIFS.Crypt
 
                 ciLen = InvokeCipher(posInChunk, doFinal);
             }
-            catch(CryptographicException e)
+            catch (CryptographicException e)
             {
                 throw new IOException("Can't (re)initialize cipher.", e);
             }
 
-            _out.Write(_chunk, 0, ciLen);
+            out1.Write(_chunk, 0, ciLen);
             _plainByteFlags.Clear();
             _written += ciLen;
         }
@@ -237,7 +220,7 @@ namespace NPOI.POIFS.Crypt
             byte[] plain = _plainByteFlags.IsEmpty ? null : (byte[])_chunk.Clone();
 
             int ciLen;
-            if(doFinal)
+            if (doFinal)
             {
                 // Final block for this (sub)chunk: run DoFinal (may add/remove padding depending on mode)
                 // BouncyCastle allows in-place finalization when input == output.
@@ -248,16 +231,20 @@ namespace NPOI.POIFS.Crypt
                  * Original logic relied on (posInChunk == 0) meaning "full chunk" which is misleading.
                  * At this point a full chunk arrives here with posInChunk == _chunk.Length.
                  */
-
-                int index = (int)(_pos >> _chunkBits);
-                bool lastChunk = (posInChunk != 0);
-                if(posInChunk == 0)
+                if (_cipher.Algorithm == CipherAlgorithm.rc4
+                    && _cipher.Algorithm.provider.cipherProviderName.ToUpperInvariant() == "IBMJCE")
                 {
-                    index--;
-                    posInChunk = _chunk.Length;
-                    lastChunk = false;
+                    int index = (int)(_pos >> _chunkBits);
+                    bool lastChunk = (posInChunk != 0);
+                    if (posInChunk == 0)
+                    {
+                        index--;
+                        posInChunk = _chunk.Length;
+                        lastChunk = false;
+                    }
+
+                    _cipher = InitCipherForBlockNoFlush(_cipher, index, lastChunk);
                 }
-                _cipher = InitCipherForBlockNoFlush(_cipher, index, lastChunk);
             }
             else
             {
@@ -265,10 +252,10 @@ namespace NPOI.POIFS.Crypt
                 ciLen = _cipher.Update(_chunk, 0, posInChunk, _chunk, 0);
             }
 
-            if(plain != null)
+            if (plain != null)
             {
                 int i = _plainByteFlags.NextSetBit(0);
-                while(i >= 0 && i < posInChunk)
+                while (i >= 0 && i < posInChunk)
                 {
                     _chunk[i] = plain[i];
                     i = _plainByteFlags.NextSetBit(i + 1);
@@ -288,7 +275,7 @@ namespace NPOI.POIFS.Crypt
 
         public override void Close()
         {
-            if(_isClosed)
+            if (_isClosed)
                 return;
             _isClosed = true;
 
@@ -298,23 +285,27 @@ namespace NPOI.POIFS.Crypt
 
                 if (fileOut != null)
                 {
+                    //Ensure close the file so the file lock is released
+                    out1.Close();
+                    
                     int oleStreamSize = (int)(fileOut.Length + LittleEndianConsts.LONG_SIZE);
-                    CalculateChecksum(fileOut, (int) _pos);
+                    CalculateChecksum(fileOut, (int)_pos);
                     dir.CreateDocument(Decryptor.DEFAULT_POIFS_ENTRY, oleStreamSize, new EncryptedPackageWriter(this));
                     CreateEncryptionInfoEntry(dir, fileOut);
                 }
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 throw new IOException(e.Message);
             }
             finally
             {
                 base.Close();
+                // safe after disposting stream in base class
+                if (fileOut != null)
+                    fileOut.Delete();
             }
         }
-
-        private static bool IsPowerOfTwo(int x) => x > 0 && (x & (x - 1)) == 0;
 
         // ---- Small helper "sparse" bitset (range marks for plaintext bytes) ----
         protected sealed class SparseBitSet
@@ -325,11 +316,11 @@ namespace NPOI.POIFS.Crypt
 
             public void Set(int fromInclusive, int toExclusive)
             {
-                if(fromInclusive < 0)
+                if (fromInclusive < 0)
                     fromInclusive = 0;
-                if(toExclusive > _bits.Length)
+                if (toExclusive > _bits.Length)
                     toExclusive = _bits.Length;
-                for(int i = fromInclusive; i < toExclusive; i++)
+                for (int i = fromInclusive; i < toExclusive; i++)
                     _bits[i] = true;
             }
 
@@ -339,8 +330,8 @@ namespace NPOI.POIFS.Crypt
             {
                 get
                 {
-                    for(int i = 0; i < _bits.Length; i++)
-                        if(_bits[i])
+                    for (int i = 0; i < _bits.Length; i++)
+                        if (_bits[i])
                             return false;
                     return true;
                 }
@@ -348,8 +339,8 @@ namespace NPOI.POIFS.Crypt
 
             public int NextSetBit(int fromIndex)
             {
-                for(int i = Math.Max(0, fromIndex); i < _bits.Length; i++)
-                    if(_bits[i])
+                for (int i = Math.Max(0, fromIndex); i < _bits.Length; i++)
+                    if (_bits[i])
                         return i;
                 return -1;
             }
@@ -377,19 +368,19 @@ namespace NPOI.POIFS.Crypt
                     LittleEndian.PutLong(buf, 0, stream._pos);
                     os.Write(buf, 0, LittleEndian.LONG_SIZE);
 
-                    FileStream fis = stream.fileOut.Create();
-                    int readBytes;
-                    while ((readBytes = fis.Read(buf, 0, buf.Length)) != -1)
+                    // Open existing file for READ (do not truncate)
+                    using (var fis = new FileStream(stream.fileOut.FullName, FileMode.Open, FileAccess.Read, FileShare.Read))
                     {
-                        os.Write(buf, 0, readBytes);
+                        int read;
+                        while ((read = fis.Read(buf, 0, buf.Length)) > 0)
+                        {
+                            os.Write(buf, 0, read);
+                        }
                     }
-                    fis.Close();
-
+                    
                     os.Close();
-
-                    stream.fileOut.Delete();
                 }
-                catch(IOException e)
+                catch (IOException e)
                 {
                     throw new EncryptedDocumentException(e);
                 }

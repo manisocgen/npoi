@@ -129,7 +129,7 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
                 descEntry.reserved2 = 0;
 
                 bos.SetBlock(block);
-                var dis = dir.CreateDocumentInputStream(entry.Name);
+                var dis = dir.CreateDocumentInputStream(entry);
                 IOUtils.Copy(dis, bos);
                 dis.Close();
 
@@ -230,7 +230,7 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
         // ------------------------------------------------------------
         protected sealed class CryptoAPICipherOutputStream : ChunkedCipherOutputStream
         {
-            public CryptoAPICipherOutputStream(CryptoAPIEncryptor outer, IEncryptionInfoBuilder builder, Stream stream)
+            public CryptoAPICipherOutputStream(CryptoAPIEncryptor outer, IEncryptionInfoBuilder builder, OutputStream stream)
                 : base(stream, outer._chunkSize, builder, outer)
             {
             }
@@ -253,6 +253,15 @@ namespace NPOI.POIFS.Crypt.CryptoAPI
                 // Force writing the current partial chunk (if any) before delegating
                 WriteChunk(continued: false);
                 base.Flush();
+            }
+
+            protected override void CalculateChecksum(FileInfo fileOut, int oleStreamSize)
+            {
+            }
+
+            protected override void CreateEncryptionInfoEntry(DirectoryNode dir, FileInfo tmpFile)
+            {
+                throw new EncryptedDocumentException("createEncryptionInfoEntry not supported");
             }
         }
 

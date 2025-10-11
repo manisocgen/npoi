@@ -56,7 +56,7 @@ namespace NPOI.POIFS.Crypt.BinaryRC4
 
         protected class BinaryRC4CipherOutputStream : ChunkedCipherOutputStream
         {
-            public BinaryRC4CipherOutputStream(Stream stream, IEncryptionInfoBuilder builder, BinaryRC4Encryptor binaryRC4Encryptor)
+            public BinaryRC4CipherOutputStream(OutputStream stream, IEncryptionInfoBuilder builder, BinaryRC4Encryptor binaryRC4Encryptor)
                 : base(stream, binaryRC4Encryptor._chunkSize, builder, binaryRC4Encryptor)
             {
             }
@@ -82,6 +82,15 @@ namespace NPOI.POIFS.Crypt.BinaryRC4
                 // Force writing the current chunk before flushing.
                 WriteChunk(continued: false);
                 base.Flush();
+            }
+
+            protected override void CalculateChecksum(FileInfo fileOut, int oleStreamSize)
+            {
+            }
+
+            protected override void CreateEncryptionInfoEntry(DirectoryNode dir, FileInfo tmpFile)
+            {
+                ((BinaryRC4Encryptor)encryptor).CreateEncryptionInfoEntry(dir);
             }
         }
 
@@ -123,7 +132,7 @@ namespace NPOI.POIFS.Crypt.BinaryRC4
 
         protected int GetKeySizeInBytes()
         {
-            return GetEncryptionInfo().Header.KeySize / 8;
+            return builder.GetHeader().KeySize / 8;
         }
 
         protected internal void CreateEncryptionInfoEntry(DirectoryNode dir)

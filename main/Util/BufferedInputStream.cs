@@ -121,7 +121,7 @@ namespace NPOI.Util
                     //    // assert buf == null;
                     //    throw new IOException("Stream closed");
                     //}
-                    this.buf = nbuf;
+                    //this.buf = nbuf;
                     buffer = nbuf;
                 }
             count = pos;
@@ -129,6 +129,14 @@ namespace NPOI.Util
             if (n > 0)
                 count = n + pos;
         }
+
+        public override int Available()
+        {
+            int n = count - pos;
+            int avail = input.Available();
+            return n > (int.MaxValue - avail) ? int.MaxValue : n + avail;
+        }
+
         public override void Mark(int readlimit) {
             marklimit = readlimit;
             markpos = pos;

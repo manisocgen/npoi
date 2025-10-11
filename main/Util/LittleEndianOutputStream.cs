@@ -36,21 +36,22 @@ namespace NPOI.Util
         {
             if (disposing)
             {
-                if (null != out1)
-                {
-                    out1.Dispose();
-                    out1 = null;
-                }
+                this.Close();
             }
         }
+
         public virtual void Close()
         {
-            Dispose();
+            if (null != out1)
+            {
+                out1.Dispose();
+                out1 = null;
+            }
         }
 
         protected internal Stream out1 = null;
 
-        public LittleEndianOutputStream(Stream out1) : base()
+        public LittleEndianOutputStream(Stream out1) : base(null)
         {
             this.out1 = out1;
         }
@@ -116,7 +117,7 @@ namespace NPOI.Util
                 throw new RuntimeException(e);
             }
         }
-        public void Write(byte[] b)
+        public override void Write(byte[] b)
         {
             // suppress IOException for interface method
 
@@ -129,7 +130,7 @@ namespace NPOI.Util
                 throw new RuntimeException(e);
             }
         }
-        public void Write(byte[] b, int off, int len)
+        public override void Write(byte[] b, int off, int len)
         {
             // suppress IOException for interface method
             try
@@ -142,7 +143,7 @@ namespace NPOI.Util
             }
         }
 
-        public void Flush()
+        public override void Flush()
         {
             out1.Flush();
         }

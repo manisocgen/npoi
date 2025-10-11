@@ -29,6 +29,11 @@ namespace NPOI.POIFS.Crypt
     {
 
         /**
+         * Document entry name for encryption info xml descriptor
+         */
+        public const String ENCRYPTION_INFO_ENTRY = "EncryptionInfo";
+
+        /**
      * A flag that specifies whether CryptoAPI RC4 or ECMA-376 encryption
      * ECMA-376 is used. It MUST be 1 unless flagExternal is 1. If flagExternal is 1, it MUST be 0.
      */

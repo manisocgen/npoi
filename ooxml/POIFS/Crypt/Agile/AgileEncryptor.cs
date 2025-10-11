@@ -16,25 +16,30 @@
 ==================================================================== */
 namespace NPOI.POIFS.Crypt.Agile
 {
+    using NPOI.OpenXmlFormats.Encryption;
+    using NPOI.POIFS.Crypt;
+    using NPOI.POIFS.Crypt.Standard;
+    using NPOI.POIFS.FileSystem;
+    using NPOI.Util;
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Security.Cryptography.Xml;
     using System.Text;
-    using NPOI.OpenXmlFormats.Encryption;
-    using NPOI.POIFS.Crypt;
-    using NPOI.POIFS.FileSystem;
-    using NPOI.Util;
 
-    public class AgileEncryptor : Encryptor {
+    public class AgileEncryptor : Encryptor
+    {
         private AgileEncryptionInfoBuilder builder;
         private byte[] integritySalt;
         private byte[] pwHash;
 
-        protected internal AgileEncryptor(AgileEncryptionInfoBuilder builder) {
+        protected internal AgileEncryptor(AgileEncryptionInfoBuilder builder)
+        {
             this.builder = builder;
         }
 
-        public override void ConfirmPassword(String password) {
+        public override void ConfirmPassword(String password)
+        {
             // see [MS-OFFCRYPTO] - 2.3.3 EncryptionVerifier
             Random r = new Random();
             int blockSize = builder.GetHeader().BlockSize;
@@ -55,7 +60,8 @@ namespace NPOI.POIFS.Crypt.Agile
             ConfirmPassword(password, newKeySpec, newKeySalt, newVerifierSalt, newVerifier, newIntegritySalt);
         }
 
-        public override void ConfirmPassword(String password, byte[] keySpec, byte[] keySalt, byte[] verifier, byte[] verifierSalt, byte[] integritySalt) {
+        public override void ConfirmPassword(String password, byte[] keySpec, byte[] keySalt, byte[] verifier, byte[] verifierSalt, byte[] integritySalt)
+        {
             AgileEncryptionVerifier ver = builder.GetVerifier();
             ver.Salt = (/*setter*/verifierSalt);
             AgileEncryptionHeader header = builder.GetHeader();
@@ -145,7 +151,8 @@ namespace NPOI.POIFS.Crypt.Agile
              */
             this.integritySalt = integritySalt;
 
-            try {
+            try
+            {
                 byte[] vec = CryptoFunctions.GenerateIv(hashAlgo, header.KeySalt, AgileDecryptor.kIntegrityKeyBlock, header.BlockSize);
                 Cipher cipher = CryptoFunctions.GetCipher(secretKey, ver.CipherAlgorithm, ver.ChainingMode, vec, Cipher.ENCRYPT_MODE);
                 byte[] FilledSalt = CryptoFunctions.GetBlock0(integritySalt, AgileDecryptor.GetNextBlockSize(integritySalt.Length, blockSize));
@@ -153,14 +160,17 @@ namespace NPOI.POIFS.Crypt.Agile
                 header.SetEncryptedHmacKey(encryptedHmacKey);
 
                 cipher = Cipher.GetInstance("RSA");
-                foreach (AgileEncryptionVerifier.AgileCertificateEntry ace in ver.GetCertificates()) {
+                foreach (AgileEncryptionVerifier.AgileCertificateEntry ace in ver.GetCertificates())
+                {
                     cipher.Init(Cipher.ENCRYPT_MODE, ace.x509.GetPublicKey());
                     ace.encryptedKey = cipher.DoFinal(GetSecretKey().GetEncoded());
                     CryptoFunctions.Mac x509Hmac = CryptoFunctions.GetMac(hashAlgo);
                     x509Hmac.Init(GetSecretKey());
                     ace.certVerifier = x509Hmac.DoFinal(ace.x509.GetEncoded());
                 }
-            } catch (Exception e) {
+            }
+            catch (Exception e)
+            {
                 throw new EncryptedDocumentException(e);
             }
         }
@@ -168,9 +178,7 @@ namespace NPOI.POIFS.Crypt.Agile
         public override OutputStream GetDataStream(DirectoryNode dir)
         {
             // TODO: Initialize headers
-            AgileCipherOutputStream countStream = new AgileCipherOutputStream(dir, builder, this);
-            //return countStream.GetStream();
-            throw new NotImplementedException("AgileCipherOutputStream should be derived from OutputStream");
+            return new AgileCipherOutputStream(dir, builder, this);
         }
 
         /**
@@ -182,7 +190,8 @@ namespace NPOI.POIFS.Crypt.Agile
          * Encrypt the HMAC as in step 3 by using a blockKey byte array consisting of the following bytes:
          * 0xa0, 0x67, 0x7f, 0x02, 0xb2, 0x2c, 0x84, and 0x33.
          **/
-        protected void UpdateIntegrityHMAC(FileInfo tmpFile, int oleStreamSize) {
+        protected void UpdateIntegrityHMAC(FileInfo tmpFile, int oleStreamSize)
+        {
             // as the integrity hmac needs to contain the StreamSize,
             // it's not possible to calculate it on-the-fly while buffering
             // TODO: add stream size parameter to GetDataStream()
@@ -195,13 +204,17 @@ namespace NPOI.POIFS.Crypt.Agile
             LittleEndian.PutLong(buf, 0, oleStreamSize);
             integrityMD.Update(buf, 0, LittleEndian.LONG_SIZE);
 
-            FileStream fis = tmpFile.Create();
-            try {
+            var fis = new FileStream(tmpFile.FullName, FileMode.Open, FileAccess.Read, FileShare.Read);
+            try
+            {
                 int readBytes;
-                while ((readBytes = fis.Read(buf, 0, buf.Length)) > 0) {
+                while ((readBytes = fis.Read(buf, 0, buf.Length)) > 0)
+                {
                     integrityMD.Update(buf, 0, readBytes);
                 }
-            } finally {
+            }
+            finally
+            {
                 fis.Close();
             }
 
@@ -220,11 +233,12 @@ namespace NPOI.POIFS.Crypt.Agile
         private CT_KeyEncryptorUri passwordUri = CT_KeyEncryptorUri.httpschemasmicrosoftcomoffice2006keyEncryptorpassword;
         private CT_KeyEncryptorUri certificateUri = CT_KeyEncryptorUri.httpschemasmicrosoftcomoffice2006keyEncryptorcertificate;
 
-        protected EncryptionDocument CreateEncryptionDocument() {
+        protected EncryptionDocument CreateEncryptionDocument()
+        {
             AgileEncryptionVerifier ver = builder.GetVerifier();
             AgileEncryptionHeader header = builder.GetHeader();
 
-            EncryptionDocument ed = EncryptionDocument.NewInstance();
+            EncryptionDocument ed = new EncryptionDocument();
             CT_Encryption edRoot = ed.AddNewEncryption();
 
             CT_KeyData keyData = edRoot.AddNewKeyData();
@@ -249,13 +263,15 @@ namespace NPOI.POIFS.Crypt.Agile
             keyPass.hashSize = (uint)hashAlgo.hashSize;
 
             ST_CipherAlgorithm? xmlCipherAlgo = (ST_CipherAlgorithm?)Enum.Parse(typeof(ST_CipherAlgorithm),header.CipherAlgorithm.xmlId);
-            if (xmlCipherAlgo == null) {
+            if (xmlCipherAlgo == null)
+            {
                 throw new EncryptedDocumentException("CipherAlgorithm " + header.CipherAlgorithm + " not supported.");
             }
             keyData.cipherAlgorithm = (/*setter*/xmlCipherAlgo.Value);
             keyPass.cipherAlgorithm = (/*setter*/xmlCipherAlgo.Value);
 
-            switch (header.ChainingMode.jceId) {
+            switch (header.ChainingMode.jceId.ToLowerInvariant())
+            {
                 case "cbc":
                     keyData.cipherChaining = (/*setter*/ST_CipherChaining.ChainingModeCBC);
                     keyPass.cipherChaining = (/*setter*/ST_CipherChaining.ChainingModeCBC);
@@ -269,7 +285,8 @@ namespace NPOI.POIFS.Crypt.Agile
             }
 
             ST_HashAlgorithm? xmlHashAlgo = (ST_HashAlgorithm?)Enum.Parse(typeof(ST_HashAlgorithm), hashAlgo.ecmaString);
-            if (xmlHashAlgo == null) {
+            if (xmlHashAlgo == null)
+            {
                 throw new EncryptedDocumentException("HashAlgorithm " + hashAlgo + " not supported.");
             }
             keyData.hashAlgorithm = (/*setter*/xmlHashAlgo.Value);
@@ -285,13 +302,17 @@ namespace NPOI.POIFS.Crypt.Agile
             hmacData.encryptedHmacKey = (/*setter*/header.GetEncryptedHmacKey());
             hmacData.encryptedHmacValue = (/*setter*/header.GetEncryptedHmacValue());
 
-            foreach (AgileEncryptionVerifier.AgileCertificateEntry ace in ver.GetCertificates()) {
+            foreach (AgileEncryptionVerifier.AgileCertificateEntry ace in ver.GetCertificates())
+            {
                 keyEnc = keyEncList.AddNewKeyEncryptor();
                 keyEnc.uri = (/*setter*/certificateUri);
                 CT_CertificateKeyEncryptor certData = keyEnc.AddNewEncryptedCertificateKey();
-                try {
+                try
+                {
                     certData.X509Certificate = ace.x509.GetEncoded();
-                } catch (Exception e) {
+                }
+                catch (Exception e)
+                {
                     throw new EncryptedDocumentException(e);
                 }
                 certData.encryptedKeyValue = (/*setter*/ace.encryptedKey);
@@ -301,52 +322,84 @@ namespace NPOI.POIFS.Crypt.Agile
             return ed;
         }
 
-        protected void marshallEncryptionDocument(EncryptionDocument ed, LittleEndianByteArrayOutputStream os) {
-            //XmlOptions xo = new XmlOptions();
-            //xo.SetCharacterEncoding("UTF-8");
-            Dictionary<String, String> nsMap = new Dictionary<String, String>();
-            nsMap.Add(passwordUri.ToString(), "p");
-            nsMap.Add(certificateUri.ToString(), "c");
-            //xo.UseDefaultNamespace();
-            //xo.SaveSuggestedPrefixes(nsMap);
-            //xo.SaveNamespacesFirst();
-            //xo.SaveAggressiveNamespaces();
+        protected void MarshallEncryptionDocument(EncryptionDocument ed, LittleEndianByteArrayOutputStream os)
+        {
+            try
+            {
+                // First let the existing serialization populate an intermediate XML payload
+                using (var intermediate = new MemoryStream())
+                {
+                    ed.Save(intermediate);
+                    intermediate.Position = 0;
 
-            // Setting standalone doesn't work with xmlbeans-2.3 & 2.6
-            // ed.DocumentProperties().Standalone=(/*setter*/true);
-            //xo.SaveNoXmlDecl();
-            MemoryStream bos = new MemoryStream();
-            try {
-                byte[] buf = Encoding.UTF8.GetBytes("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\r\n");
-                bos.Write(buf, 0, buf.Length);
-                ed.Save(bos);
-                os.Write(bos.GetBuffer(), 0, (int)bos.Length);
-            } catch (IOException e) {
+                    // Load into a DOM
+                    var doc = new System.Xml.XmlDocument
+                    {
+                        PreserveWhitespace = true
+                    };
+                    doc.Load(intermediate);
+
+                    // Prepare writer settings to mimic transformer output properties
+                    var settings = new System.Xml.XmlWriterSettings
+                    {
+                        Encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+                        Indent = false,
+                        OmitXmlDeclaration = true // we'll write custom declaration with standalone="yes"
+                    };
+
+                    using (var ms = new MemoryStream())
+                    {
+                        using (var xw = System.Xml.XmlWriter.Create(ms, settings))
+                        {
+                            // Write XML declaration with standalone="yes"
+                            xw.WriteStartDocument(standalone: true);
+                            // Write the document content (children of the root)
+                            doc.DocumentElement.WriteTo(xw);
+                            xw.WriteEndDocument();
+                            xw.Flush();
+                        }
+
+                        os.Write(ms.GetBuffer(), 0, (int)ms.Length);
+                    }
+                }
+            }
+            catch (Exception e) when (e is IOException || e is System.Xml.XmlException)
+            {
                 throw new EncryptedDocumentException("error marshalling encryption info document", e);
             }
         }
-
+        
         protected void CreateEncryptionInfoEntry(DirectoryNode dir, FileInfo tmpFile)
         {
-            DataSpaceMapUtils.AddDefaultDataSpace(dir);
-
             EncryptionInfo info = builder.GetEncryptionInfo();
+            EncryptionRecord er = new EncryptionRecordInternal(info);
 
-            //EncryptionRecord er = new EncryptionRecord(){
-            //    public void Write(LittleEndianByteArrayOutputStream bos) {
-            //        // EncryptionVersionInfo (4 bytes): A Version structure (section 2.1.4), where 
-            //        // Version.vMajor MUST be 0x0004 and Version.vMinor MUST be 0x0004
-            //        bos.Writeshort(info.VersionMajor);
-            //        bos.Writeshort(info.VersionMinor);
-            //        // Reserved (4 bytes): A value that MUST be 0x00000040
-            //        bos.WriteInt(info.EncryptionFlags);
+            DataSpaceMapUtils.AddDefaultDataSpace(dir);
+            DataSpaceMapUtils.CreateEncryptionEntry(dir, EncryptionInfo.ENCRYPTION_INFO_ENTRY, er);
+        }
 
-            //        EncryptionDocument ed = CreateEncryptionDocument();
-            //        marshallEncryptionDocument(ed, bos);
-            //    }
-            //};
+        private sealed class EncryptionRecordInternal : EncryptionRecord
+        {
+            EncryptionInfo info;
 
-            //CreateEncryptionEntry(dir, "EncryptionInfo", er);
+            public EncryptionRecordInternal(EncryptionInfo info)
+            {
+                this.info = info;
+            }
+
+            public void Write(LittleEndianByteArrayOutputStream bos)
+            {
+                // EncryptionVersionInfo (4 bytes): A Version structure (section 2.1.4), where
+                // Version.vMajor MUST be 0x0004 and Version.vMinor MUST be 0x0004
+                bos.WriteShort(info.VersionMajor);
+                bos.WriteShort(info.VersionMinor);
+                // Reserved (4 bytes): A value that MUST be 0x00000040
+                bos.WriteInt(info.EncryptionFlags);
+
+                var encryptor = (AgileEncryptor)info.Encryptor;
+                EncryptionDocument ed = encryptor.CreateEncryptionDocument();
+                encryptor.MarshallEncryptionDocument(ed, bos);
+            }
         }
 
 
@@ -365,7 +418,8 @@ namespace NPOI.POIFS.Crypt.Agile
          * that the StreamSize field of the EncryptedPackage field specifies the number of bytes of
          * unencrypted data as specified in section 2.3.4.4.
          */
-        private sealed class AgileCipherOutputStream : ChunkedCipherOutputStream {
+        private sealed class AgileCipherOutputStream : ChunkedCipherOutputStream
+        {
             public AgileCipherOutputStream(DirectoryNode dir, IEncryptionInfoBuilder builder, AgileEncryptor encryptor)
                     : base(dir, 4096, builder, encryptor)
             {
